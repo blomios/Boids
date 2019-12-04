@@ -1,0 +1,278 @@
+/* 
+ * $Id$
+ * 
+ * SARL is an general-purpose agent programming language.
+ * More details on http://www.sarl.io
+ * 
+ * Copyright (C) 2014-2019 the original authors or authors.
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.sarl.demos.boids
+
+import io.sarl.bootstrap.SRE
+import io.sarl.bootstrap.SREBootstrap
+import io.sarl.demos.boids.gui.EnvironmentGui
+import io.sarl.lang.core.AgentContext
+import io.sarl.lang.core.Event
+import io.sarl.lang.core.EventListener
+import io.sarl.core.OpenEventSpace
+import java.util.Map
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import org.arakhne.afc.math.geometry.d2.d.Vector2d
+import org.eclipse.core.internal.runtime.Log
+
+import static extension java.lang.Math.*
+import java.util.List
+import java.util.ArrayList
+
+/** 
+ * The boids simulation launching the SARL environment with the corresponding agent and ensuring the communication between agents and the GUI
+ * @author Nicolas Gaud
+ */
+class BoidsSimulation implements EventListener {
+
+	public static val id = UUID::randomUUID
+
+	/** 
+	 * SRE Kernel instance
+	 */
+	var kernel : SREBootstrap
+
+	/** 
+	 * The default SARL context where environment and boids are spawned
+	 */
+	var defaultSARLContext : AgentContext
+
+	/** 
+	 * Identifier of the environment
+	 */
+	var environment : UUID
+
+	var width = Settings::EnvtWidth
+
+	var height = Settings::EnvtHeight
+
+	/** 
+	 * Map buffering boids before launch/start
+	 */
+	var boidsToLaunch : Map<Population, Integer>
+	var wallsToLaunch : Map<WallParameters, Integer>
+
+	/** 
+	 * Map buffering boids' bodies before launch/start
+	 */
+	var boidBodies : ConcurrentHashMap<UUID, PerceivedBoidBody>
+
+	var wallBodies : ConcurrentHashMap<UUID, PerceivedWallBody>
+
+	var boidsCount : int
+
+	var wallsCount : int
+
+	/** 
+	 * Boolean specifying id the simulation is started or not.
+	 */
+	var isSimulationStarted = false
+
+	/**
+	 * the vent space used to establish communication between GUI and agents,
+	 * Especially enabling GUI to forward start event to the environment, 
+	 * respectively the environment to send GUIRepain at each simulation step to the GUI
+	 */
+	var ^space : OpenEventSpace
+
+	/** 
+	 * The Graphical user interface
+	 */
+	var myGUI : EnvironmentGui
+
+	new {
+		boidsCount = 0
+
+		this.boidBodies = new ConcurrentHashMap
+		this.wallBodies = new ConcurrentHashMap
+
+		boidsToLaunch = newHashMap
+		wallsToLaunch = newHashMap
+	}
+
+	def start : void {
+		launchAllAgents
+		isSimulationStarted = true
+	}
+
+	def stop : void {
+		killAllAgents
+		isSimulationStarted = false
+	}
+
+	/** 
+	 * Add the boids of a population to the simulation.
+	 * 
+	 * @param p - the population to add.
+	 */
+	def addBoid(p : Population) : void {
+		boidsCount++
+		if (!isSimulationStarted) {
+			var currentBoidCount = boidsToLaunch.get(p)
+			if (currentBoidCount !== null) {
+				currentBoidCount++
+			} else {
+				currentBoidCount = new Integer(1)
+			}
+			boidsToLaunch.put(p, currentBoidCount)
+		} else {
+			launchBoid(p, "Boid" + boidsCount)
+		}
+	}
+
+	def addWall(p: WallParameters) : void {
+		
+		addPointsOnWall(p)
+		wallsCount++
+		if (!isSimulationStarted) {
+			var currentWallCount = wallsToLaunch.get(p)
+			if (currentWallCount !== null) {
+				currentWallCount++
+			} else {
+				currentWallCount = new Integer(1)
+			}
+			wallsToLaunch.put(p, currentWallCount)
+		} else {
+			launchWall(p, "Wall" + wallsCount)
+		}
+	}
+	
+	def addPointsOnWall(w : WallParameters){
+		
+		for(var i : int = 0; i < w.points.size-1; i++){
+			
+			if((w.points.get(i) - w.points.get(i + 1)).length >= Settings.wallPointsMaxDistance){
+				
+				var nbPointsToAdd = (w.points.get(i) - w.points.get(i + 1)).length /
+					(Settings.wallPointsMaxDistance/2)
+					
+				nbPointsToAdd = nbPointsToAdd.ceil()
+					
+				var step = (w.points.get(i) - w.points.get(i + 1)).length / nbPointsToAdd;
+
+				//System.out.println("1 "+step)
+
+				var vec = w.points.get(i + 1) - w.points.get(i)
+				vec.normalize();
+				
+				vec.scale(step)
+				
+				for (var j : int = 0; j < nbPointsToAdd-1; j++) {
+					
+					var point = w.points.get(i + j) + vec
+
+					val myList : List<Vector2d> = new ArrayList(w.points)
+
+					System.out.println(point)
+					
+					myList.add(i + j + 1, point)
+					
+					w.points = myList.toArray(myList)
+						
+				}
+			}
+		}
+	}
+
+	private def launchAllAgents : void {
+
+		kernel = SRE::getBootstrap
+
+		defaultSARLContext = kernel.startWithoutAgent
+
+		environment = kernel.startAgent(typeof(Environment), height, width)
+
+		launchAllBoids
+		launchAllWalls
+		^space = defaultSARLContext.defaultSpace as OpenEventSpace
+
+		this.myGUI = new EnvironmentGui(^space, height, width, this.boidBodies, this.wallBodies)
+
+		//Registering to receive GUIRepaint events
+		^space.register(this)
+		// Sending start to Environment
+		^space.emit(id, new Start(this.boidBodies, this.wallBodies))
+	}
+
+	private def launchAllBoids : void {
+		var boidNum = 0
+		for (e : boidsToLaunch.entrySet) {
+			for (var i = 0; i < e.value; i++) {
+				boidNum++
+				e.key.launchBoid("Boid" + boidNum)
+			}
+		}
+	}
+
+	private def launchAllWalls : void {
+		var wallNum = 0L
+		for (e : wallsToLaunch.entrySet) {
+			for (var i = 0; i < e.value; i++) {
+				wallNum++
+				e.key.launchWall("Wall" + wallNum)
+			}
+		}
+	}
+
+	@SuppressWarnings("constant_condition", "discouraged_reference")
+	private def launchBoid(p : Population, boidName : String) : void {
+		var initialPosition = new Vector2d((Math::random - 0.5) * width, (Math::random - 0.5) * height)
+		var initialVitesse = new Vector2d(Math::random - 0.5, Math::random - 0.5)
+
+		var b = kernel.startAgent(typeof(Boid), environment, p, initialPosition, initialVitesse, boidName)
+		this.boidBodies.put(b, new PerceivedBoidBody(p, b, initialPosition, initialVitesse))
+
+		if (Settings::isLogActivated) {
+			//System.out.println("Lancement d'un boid à la position " + initialPosition + " et avec une vitesse de " +
+				//initialVitesse)
+		}
+	}
+
+	@SuppressWarnings("constant_condition", "discouraged_reference")
+	private def launchWall(p : WallParameters, wallName : String) : void {
+
+		var b = kernel.startAgent(typeof(Wall), environment, wallName)
+		this.wallBodies.put(b, new PerceivedWallBody(b, p.points))
+
+		if (Settings::isLogActivated) {
+			//System.out.println("Lancement d'un wall à la position")
+		}
+	}
+
+	private def killAllAgents : void {
+		// do something if you want to
+	}
+
+	override getID : UUID {
+		id
+	}
+
+	/** 
+	 * Methods managing event coming from agents 
+	 */
+	override receiveEvent(^event : Event) {
+		if (^event instanceof GuiRepaint) { // event from the environment, GUI must be refreshed
+			this.myGUI.boids = ^event.perceivedAgentBody
+			this.myGUI.repaint
+		}
+	}
+
+}

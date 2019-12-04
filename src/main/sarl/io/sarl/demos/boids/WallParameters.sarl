@@ -1,0 +1,22 @@
+/** 
+ * 
+ */
+package io.sarl.demos.boids
+
+import org.arakhne.afc.math.geometry.d2.d.Vector2d
+import org.eclipse.xtend.lib.annotations.Accessors
+
+/** 
+ * @author Anthony Bouteiller
+ * 
+ */
+class WallParameters extends Object {
+
+	@Accessors
+	var points : Vector2d[]
+	
+	new (p : Vector2d[]){
+		points = p
+	}
+	
+}

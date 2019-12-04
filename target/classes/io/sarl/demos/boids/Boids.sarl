@@ -1,0 +1,524 @@
+/* 
+ * $Id$
+ * 
+ * SARL is an general-purpose agent programming language.
+ * More details on http://www.sarl.io
+ * 
+ * Copyright (C) 2014-2019 the original authors or authors.
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package io.sarl.demos.boids
+
+import io.sarl.core.DefaultContextInteractions
+import io.sarl.core.Initialize
+import io.sarl.core.Logging
+import io.sarl.core.Schedules
+import java.util.Collection
+import java.util.UUID
+import org.arakhne.afc.math.geometry.d2.d.Vector2d
+import io.sarl.core.Lifecycle
+
+import static extension java.lang.Math.*
+
+/** 
+ * A boid agent evolving according C. Reynolds basic behavioral rules
+ * @author Nicolas Gaud
+ */
+@SuppressWarnings("potential_field_synchronization_problem")
+agent Boid {
+
+	uses Logging, DefaultContextInteractions, Schedules, Lifecycle
+
+	// ID of the environmental agent
+	var environment : UUID
+
+	var position : Vector2d
+
+	var speed : Vector2d
+
+	var group : Population
+	
+	var alpha : double = 0
+	
+	var currentWall : PerceivedWallBody
+	
+	var currentWallDirection : int
+	
+	var myBody : PerceivedBoidBody
+
+	on Initialize {
+		// 5 Boids init parameters : UUID envt, Population p, Vector2d initialPosition, Vector2d initialVitesse, String boidName
+		if (occurrence.parameters.size > 4) {
+			if (occurrence.parameters.get(0) instanceof UUID) {
+				environment = occurrence.parameters.get(0) as UUID
+			}
+
+			if (occurrence.parameters.get(1) instanceof Population) {
+				group = occurrence.parameters.get(1) as Population
+			}
+
+			if (occurrence.parameters.get(2) instanceof Vector2d) {
+				position = occurrence.parameters.get(2) as Vector2d
+			}
+			if (occurrence.parameters.get(3) instanceof Vector2d) {
+				speed = occurrence.parameters.get(3) as Vector2d
+				speed.length = 0.25
+				speed += new Vector2d(0, 0.75)
+				speed.scale(group.maxSpeed)
+			}
+			if (occurrence.parameters.get(4) instanceof String) {
+				loggingName = occurrence.parameters.get(4) as String
+			}
+
+		}
+		if (Settings::isLogActivated) {
+			"Boids activated".info
+		}
+	}
+
+	on Perception {
+		var boids = occurrence.perceivedAgentBody
+		var walls = occurrence.perceivedWallBody
+		myBody = boids.get(ID)
+		if ((myBody !== null) && (myBody.owner == this.ID)) {
+			// Update boids' speed and position according to the new environmental data
+			this.position = myBody.position
+			this.speed = myBody.vitesse
+		}
+		in(Settings::pause) [
+			emit(new Action => [influence = think(boids.values, walls.values)])[it.UUID == this.environment]
+
+			if (Settings::isLogActivated) {
+				//info("Sending Influences.")
+			}
+		]
+	}
+
+	on Die {
+		killMe
+	}
+
+	/************** Boids' behavioral Methods ****************************
+	 */
+	 
+	 /**
+	  * The core boids behavior : aggregating all forces into a influence 
+	  */
+	def think(perception : Collection<PerceivedBoidBody>, walls : Collection<PerceivedWallBody>) : Vector2d {
+		
+		if (perception !== null || perception.size != 0) {
+			
+			var force : Vector2d
+			var influence = new Vector2d
+
+			influence.set(0, 0)
+
+			if (group.separationOn) {
+				force = perception.separation
+				force.scale(group.separationForce)
+				influence += force
+			}
+
+			if (group.cohesionOn) {
+				force = perception.cohesion
+				force.scale(group.cohesionForce)
+				influence += force
+			}
+
+			if (group.alignmentOn) {
+				force = perception.alignment
+				force.scale(group.alignmentForce)
+				influence += force
+			}
+
+			if (group.repulsionOn) {
+				force = perception.repulsion
+				force.scale(group.repulsionForce)
+				influence += force
+			}
+
+			if (influence.length > group.maxForce) {
+				influence.length = group.maxForce
+			}
+
+			force = walls.wallEscape(influence + speed)
+			force.scale(100000000.0f)
+			
+			influence.scale(1 / group.mass)
+			return influence * (1-alpha) + force * alpha
+		}
+
+			System.out.println("*****************PERCEPT NULL***************************")
+
+			var force : Vector2d
+			var influence = new Vector2d
+			
+			var direction = speed.angle
+			var cos = direction.cos
+			var sin = direction.sin
+			
+			var x = position.x + ( 5 * cos ) as int
+		    var y = position.y + ( 5 * sin ) as int
+			
+			influence = new Vector2d(x,y) - position
+
+			force = walls.wallEscape(influence)
+			force.scale(100000000.0f)
+
+			return force
+	}
+
+	/** 
+	 * Determine whether a body is visible or not according to the perception range
+	 */
+	def isVisible(otherBoid : PerceivedBoidBody, distance : double) : boolean {
+		var tmp = otherBoid.position - position
+
+		if (tmp.length > distance)
+			return false
+
+		var tmp2 = speed.clone
+		tmp2.normalize
+
+		if (tmp2 * tmp < group.visibleAngleCos)
+			return false
+
+		return true
+	}
+
+	/** 
+	 * Determine whether a wall's point is visible or not according to the perception range
+	 */
+	def isVisible(wallPoint : Vector2d) : boolean {
+		var tmp = wallPoint - position
+
+		if (tmp.length > Settings.wallPointsMaxDistance)
+			return false
+
+		/*var tmp2 = speed.clone
+		tmp2.normalize
+
+		if (tmp2 * tmp < group.visibleAngleCos)
+			return false*/
+
+		return true
+	}
+
+	/** 
+	 * Determine whether a wall between 2 points is in range or not
+	 */
+	def isWallVisible(wallPointA : Vector2d, wallPointB : Vector2d, orientation : Vector2d) : Vector2d {
+		
+		var virtualBoidPoint : Vector2d = position + orientation
+		
+
+		var x1 : double
+		var x2 : double
+		var x3 : double
+		var x4 : double
+		
+		var b1 : double
+		var b2 : double
+		
+		var y1 : double
+		var y2 : double
+		var y3 : double
+		var y4 : double
+		
+		var a1 : double
+		var a2 : double
+		
+		
+		
+		if(wallPointA.x < wallPointB.x){
+			
+			x1 = wallPointA.x
+			x2 = wallPointB.x
+			
+			y1 = wallPointA.y
+			y2 = wallPointB.y
+			
+		}
+		else {
+
+			x2 = wallPointA.x
+			x1 = wallPointB.x
+
+			y2 = wallPointA.y
+			y1 = wallPointB.y
+		}
+
+		if (position.x < virtualBoidPoint.x) {
+
+			x3 = position.x
+			x4 = virtualBoidPoint.x
+
+			y3 = position.y
+			y4 = virtualBoidPoint.y
+
+		} else {
+
+			x4 = position.x
+			x3 = virtualBoidPoint.x
+
+			y4 = position.y
+			y3 = virtualBoidPoint.y
+		}
+
+		a2 = (y4 - y3) / (x4 - x3)
+		b2 = y3 - (a2 * x3)
+		
+		if (x1 == x2) {
+
+
+			var xcomm : double = x1
+			var ycomm : double = a2 * xcomm + b2
+
+			var pos : Vector2d = new Vector2d(xcomm, ycomm)
+			
+			if ((pos - virtualBoidPoint).length < (pos - position).length)
+				return pos
+
+			return null
+			
+		}
+		else {
+			
+			a1 = (y2 - y1) / (x2 - x1)
+
+			b1 = y1 - (a1 * x1)
+
+			if (a1 == a2) {
+				return null
+			} else {
+				var xcomm : double = (b2 - b1) / (a1 - a2)
+				var ycomm : double = a1 * xcomm + b1
+
+				var pos : Vector2d = new Vector2d(xcomm, ycomm)
+
+				if (xcomm >= x1 && xcomm <= x2) {
+					if ((pos - virtualBoidPoint).length < (pos - position).length)
+						return pos
+				}
+
+				return null
+
+			}
+		}
+		
+		
+	}
+
+	private static def getAngle(v : Vector2d) : double {
+		var zero = 1E-9
+		if ((v.x * v.x) < zero) {
+			if(v.y >= 0) return (PI / 2)
+			return (-1 * PI / 2)
+		}
+		if(v.x >= 0) return (v.y / v.x).atan
+		if(v.y >= 0) return ( PI + (v.y / v.x).atan )
+		return ( (v.y / v.x).atan - PI )
+	}
+
+	/** Compute the separation force.
+	 */
+	def separation(otherBoids : Collection<PerceivedBoidBody>) : Vector2d {
+		var force = new Vector2d
+		var len = 0.0
+
+		for (otherBoid : otherBoids) {
+			if ((otherBoid !== null) && (otherBoid.owner != this.ID) && (otherBoid.group == group) &&
+				(isVisible(otherBoid, group.distSeparation))) {
+				var tmp = position - otherBoid.position
+				len = tmp.length
+				// force : 1/r
+				tmp.scale(1.0 / (len ** 2))
+				force += tmp
+			}
+		}
+		return force
+	}
+
+	def wallEscape(walls : Collection<PerceivedWallBody>, orientation : Vector2d) : Vector2d {
+
+		var traited : boolean = false;
+		
+		var force : Vector2d = new Vector2d(0,0)
+		
+		var vect : Vector2d = new Vector2d(0, 0)
+		
+		var nearestPoint : Vector2d = null
+
+		for (wall : walls) {
+			
+			for(var i : int = 0 ; i < wall.points.size; i++){
+				
+				if (isVisible(wall.points.get(i))) {
+					
+
+					if (i + 1 < wall.points.size) {
+
+						var wallInter : Vector2d = isWallVisible(wall.points.get(i), wall.points.get(i + 1),
+							orientation)
+							
+						if (wallInter === null){
+							
+							//alpha = 0
+							
+						}
+						
+						else if ((position - wallInter).length < Settings.wallPointsMaxDistance) {
+							
+							if(nearestPoint === null || (position - wallInter).length < (position - nearestPoint).length){
+								
+								nearestPoint = wallInter;
+
+								var tmp = wallInter - position
+
+								var newTemp : Vector2d
+
+								if (currentWall !== null && wall.hashCode == currentWall.hashCode) {
+
+									
+									newTemp = (wall.points.get(i + currentWallDirection) - wallInter)
+
+								} else {
+
+									if (tmp.angle(wall.points.get(i) - wallInter) <
+										tmp.angle(wall.points.get(i + 1) - wallInter)) {
+
+										newTemp = (wall.points.get(i + 1) - wallInter)
+										currentWallDirection = 1
+										currentWall = wall
+
+									} else {
+
+										newTemp = (wall.points.get(i) - wallInter)
+										currentWallDirection = 0
+										currentWall = wall
+									}
+								}
+								
+								
+								var dist = abs(sin(tmp.angle(wall.points.get(i + 1) - wallInter))) * tmp.length
+								
+								dist = dist-Settings.wallPointsMaxDistance/10
+								if (dist < 0.00001)
+									dist = 0.00001
+
+								System.out.println(dist)
+								
+								newTemp.scale(1 / (dist ** 2))
+								vect = newTemp
+
+								
+
+								alpha = 1 - (dist / Settings.wallPointsMaxDistance)
+
+								traited = true
+
+							}
+
+						}
+					}
+
+				}
+				
+			}
+			
+		}
+		
+		force = vect
+		
+		if(!traited)
+			alpha = 0
+			
+		return force
+		
+	}
+	
+	def vectDirect(a : Vector2d, b: Vector2d):double{
+		
+		return (b.y-a.y)/(b.x-a.x)
+		
+	}
+	
+	
+
+	/** Compute the cohesion force.
+	 */
+	def cohesion(otherBoids : Collection<PerceivedBoidBody>) : Vector2d {
+		var nbTot = 0
+		var force = new Vector2d
+
+		for (otherBoid : otherBoids) {
+			if ((otherBoid !== null) && (otherBoid.owner != this.ID) && (otherBoid.group == group) &&
+				(isVisible(otherBoid, group.distCohesion))) {
+				nbTot++
+				force += otherBoid.position
+			}
+		}
+
+		// computation of the barycenter.
+		if (nbTot > 0) {
+			force.scale(1.0 / nbTot)
+			force -= position
+		}
+		return force
+	}
+
+	/** Compute the alignment force.
+	 */
+	def alignment(otherBoids : Collection<PerceivedBoidBody>) : Vector2d {
+		var nbTot = 0
+		var tmp = new Vector2d
+		var force = new Vector2d
+
+		for (otherBoid : otherBoids) {
+			if ((otherBoid !== null) && (otherBoid.owner != this.ID) && (otherBoid.group == group) &&
+				(isVisible(otherBoid, group.distAlignment))) {
+				nbTot++
+				tmp.set(otherBoid.vitesse)
+				tmp.scale(1.0 / tmp.length)
+				force += tmp
+			}
+		}
+
+		if (nbTot > 0) {
+			force.scale(1.0 / nbTot)
+		}
+		return force
+	}
+
+	/** 
+	 * Compute the repulsion force.
+	 */
+	def repulsion(otherBoids : Collection<PerceivedBoidBody>) : Vector2d {
+		var force = new Vector2d
+		var len = 0.0
+
+		for (otherBoid : otherBoids) {
+			if ((otherBoid !== null) && (otherBoid.owner != this.ID) && (otherBoid.group != group) &&
+				isVisible(otherBoid, group.distRepulsion)) {
+				var tmp = position - otherBoid.position
+				len = tmp.length
+				tmp.scale(1 / (len ** 2))
+				force += tmp
+			}
+		}
+		return force
+	}
+
+
+}
