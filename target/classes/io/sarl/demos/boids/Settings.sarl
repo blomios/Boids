@@ -53,4 +53,6 @@ interface Settings {
 	 */
 	public static val wallPointsMaxDistance = 100
 
+	public static val wallSize = 5
+
 }

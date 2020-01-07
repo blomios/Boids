@@ -30,7 +30,7 @@ import static extension java.lang.Math.cos
  */
 class Population {
 
-	public static val DEFAULT_REPULSION_FORCE = 5.0 // repulsion must be important compared to cohesion
+	public static val DEFAULT_REPULSION_FORCE = 10.0 // repulsion must be important compared to cohesion
 	public static val DEFAULT_SEPARATION_FORCE = 1.0
 	public static val DEFAULT_COHESION_FORCE = 0.0001
 	public static val DEFAULT_ALIGNMENT_FORCE = 1.0

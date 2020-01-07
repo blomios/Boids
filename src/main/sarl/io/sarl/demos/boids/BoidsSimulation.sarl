@@ -138,6 +138,11 @@ class BoidsSimulation implements EventListener {
 		}
 	}
 
+	/** 
+	 * Add the wall to the simulation.
+	 * 
+	 * @param p - the wall to add.
+	 */
 	def addWall(p: WallParameters) : void {
 		
 		addPointsOnWall(p)
@@ -154,12 +159,18 @@ class BoidsSimulation implements EventListener {
 			launchWall(p, "Wall" + wallsCount)
 		}
 	}
-	
+
+	/** 
+	 * reduce the length of each part of the xall to be detected by the boids.
+	 * 
+	 * @param p - the wall to update.
+	 */
 	def addPointsOnWall(w : WallParameters){
 		
 		for(var i : int = 0; i < w.points.size-1; i++){
 			
-			if((w.points.get(i) - w.points.get(i + 1)).length >= Settings.wallPointsMaxDistance){
+			if ((w.points.get(i) - w.points.get(i + 1)).length >=
+				Settings.wallPointsMaxDistance / 2) {
 				
 				var nbPointsToAdd = (w.points.get(i) - w.points.get(i + 1)).length /
 					(Settings.wallPointsMaxDistance/2)

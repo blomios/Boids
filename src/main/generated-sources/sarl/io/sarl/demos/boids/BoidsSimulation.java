@@ -183,7 +183,8 @@ public class BoidsSimulation implements EventListener {
       Vector2d _get = w.getPoints()[i];
       Vector2D<?, ?> _get_1 = w.getPoints()[(i + 1)];
       double _length = _get.operator_minus(_get_1).getLength();
-      if ((_length >= Settings.wallPointsMaxDistance)) {
+      if ((_length >= 
+        (Settings.wallPointsMaxDistance / 2))) {
         Vector2d _get_2 = w.getPoints()[i];
         Vector2D<?, ?> _get_3 = w.getPoints()[(i + 1)];
         double _length_1 = _get_2.operator_minus(_get_3).getLength();

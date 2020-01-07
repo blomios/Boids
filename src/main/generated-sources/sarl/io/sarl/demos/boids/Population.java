@@ -35,7 +35,7 @@ import org.eclipse.xtext.xbase.lib.Pure;
 @SarlElementType(10)
 @SuppressWarnings("all")
 public class Population {
-  public static final double DEFAULT_REPULSION_FORCE = 5.0;
+  public static final double DEFAULT_REPULSION_FORCE = 10.0;
   
   public static final double DEFAULT_SEPARATION_FORCE = 1.0;
   

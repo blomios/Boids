@@ -88,6 +88,7 @@ agent Environment {
 					this.influences.add(occurrence.source.UUID)
 
 					applyForce(occurrence.influence, boids.get(occurrence.source.UUID))
+					resolveWallConflict(boids.get(occurrence.source.UUID))
 				}
 
 				if (this.influences.size == this.boids.size) {
@@ -108,6 +109,95 @@ agent Environment {
 	on Die {
 		killMe
 	}
+	
+	
+		/** 
+	 * Get distance between boid and a part of a wall.
+	 * 
+	 * @param pointA - the first point of the part of the wall.
+	 * @param pointB - the second point of the part of the wall.
+	 * @param boidPosition - boid position.
+	 */
+	def getWallDistance(pointA : Vector2d, pointB : Vector2d, boidPosition : Vector2d){
+		
+		var AP : Vector2d = boidPosition - pointA
+		var AB = pointB - pointA
+		
+		
+		var t = AP.dot(AB) / (AB.norme * AB.norme)
+
+		t = min(max(0, t), 1)
+
+		var Pprime= pointA + AB*t
+		
+		return Pprime
+		
+	}
+	
+	//Norm of a vector
+	def norme(vector : Vector2d){
+		
+		return Math.sqrt(vector.x * vector.x + vector.y * vector.y)
+		
+	}
+	
+	/** 
+	 * Resolve superposition between a boid and a wall.
+	 * 
+	 * @param b - the boid to check.
+	 */
+	def resolveWallConflict(b : PerceivedBoidBody) {
+		
+		//Check the position of the boid and each wall
+		for(wall : walls.values){
+			
+			for(var i = 0; i < wall.points.size()-1; i++ ){
+				
+				var distBoidPoint = (wall.points.get(i) - b.position).length
+				
+				//If the boid is on a wall
+				if (distBoidPoint < Settings.wallPointsMaxDistance) {
+					
+					var pointA : Vector2d
+					var pointB : Vector2d
+					
+					if(wall.points.get(i).length < wall.points.get(i+1).length){
+						pointA = wall.points.get(i)
+						pointB = wall.points.get(i+1)
+						
+					}
+					else {
+						pointA = wall.points.get(i+1)
+						pointB = wall.points.get(i)
+						
+					}
+
+					//Pull the boid outside the wall
+					
+					var Pprime = getWallDistance(pointA, pointB, b.position)
+					
+					var vect = b.position - Pprime
+					
+					if (vect.length < Settings.wallSize) {
+						
+						var step = Settings.wallSize - vect.length
+						
+						vect.normalize()
+						
+						vect.scale(step)
+						
+						b.position = b.position + vect
+						
+					}
+				}
+				
+			}
+			
+		}
+		
+		
+		
+	}
 
 	def applyForce(force : Vector2d, b : PerceivedBoidBody) {
 		// limiting/clamping the applied force
@@ -117,8 +207,6 @@ agent Environment {
 		}
 
 		// contribution of the mass.
-		// force * (1 / b.getGroupe().masse);
-		// updating acceleration and speed.
 		var acceleration = b.acceleration
 		
 		acceleration.set(force)

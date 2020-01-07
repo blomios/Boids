@@ -56,6 +56,8 @@ agent Boid {
 	var currentWallDirection : int
 	
 	var myBody : PerceivedBoidBody
+	
+	var forgetCurrentWall = 0.0
 
 	on Initialize {
 		// 5 Boids init parameters : UUID envt, Population p, Vector2d initialPosition, Vector2d initialVitesse, String boidName
@@ -117,33 +119,35 @@ agent Boid {
 	  */
 	def think(perception : Collection<PerceivedBoidBody>, walls : Collection<PerceivedWallBody>) : Vector2d {
 		
-		if (perception !== null || perception.size != 0) {
-			
+		var mPerception = removeBoidsHiddenByWall(perception, walls)
+		
+		if (mPerception !== null || mPerception.size != 0) {
+
 			var force : Vector2d
 			var influence = new Vector2d
 
 			influence.set(0, 0)
 
 			if (group.separationOn) {
-				force = perception.separation
+				force = mPerception.separation
 				force.scale(group.separationForce)
 				influence += force
 			}
 
 			if (group.cohesionOn) {
-				force = perception.cohesion
+				force = mPerception.cohesion
 				force.scale(group.cohesionForce)
 				influence += force
 			}
 
 			if (group.alignmentOn) {
-				force = perception.alignment
+				force = mPerception.alignment
 				force.scale(group.alignmentForce)
 				influence += force
 			}
 
 			if (group.repulsionOn) {
-				force = perception.repulsion
+				force = mPerception.repulsion
 				force.scale(group.repulsionForce)
 				influence += force
 			}
@@ -158,25 +162,54 @@ agent Boid {
 			influence.scale(1 / group.mass)
 			return influence * (1-alpha) + force * alpha
 		}
-
-			System.out.println("*****************PERCEPT NULL***************************")
-
-			var force : Vector2d
-			var influence = new Vector2d
+	}
+	
+	/*************Remove Boids hidden by wall or too far from perception list***********/
+	
+	def removeBoidsHiddenByWall(otherBoids : Collection<PerceivedBoidBody>,
+		walls : Collection<PerceivedWallBody>) : Collection<PerceivedBoidBody> {
 			
-			var direction = speed.angle
-			var cos = direction.cos
-			var sin = direction.sin
-			
-			var x = position.x + ( 5 * cos ) as int
-		    var y = position.y + ( 5 * sin ) as int
-			
-			influence = new Vector2d(x,y) - position
+		//Create an empty list that will be filled only by visible boids
+		var mBoids : Collection<PerceivedBoidBody> = newArrayList
+		
+		//If the current boids has been classified as not visible
+		var traited : boolean = false
+		
+		for(boid : otherBoids){
+			if (boid.owner !== this.ID) {
 
-			force = walls.wallEscape(influence)
-			force.scale(100000000.0f)
+				var vector = boid.position - position
+				
+				if(vector.length <= 100){
+				
+					for (wall : walls) {
+	
+						for (var i = 0; i < wall.points.size - 1; i++) {
+							
+							if(((wall.points.get(i)-position).length < 100 || (wall.points.get(i+1)-position).length < 100))
+							{
+	
+								if (isWallVisible(wall.points.get(i), wall.points.get(i + 1), vector) !== null) {
 
-			return force
+									traited = true
+									break
+								}
+							}
+						}
+						
+						if(traited)
+							break
+					}
+				}
+			}
+
+			if (!traited) {
+				mBoids.add(boid)
+			}
+		}
+		
+		return mBoids;
+		
 	}
 
 	/** 
@@ -206,17 +239,13 @@ agent Boid {
 		if (tmp.length > Settings.wallPointsMaxDistance)
 			return false
 
-		/*var tmp2 = speed.clone
-		tmp2.normalize
-
-		if (tmp2 * tmp < group.visibleAngleCos)
-			return false*/
-
 		return true
 	}
 
 	/** 
-	 * Determine whether a wall between 2 points is in range or not
+	 * Determine whether a wall between 2 points is in range or not and return intersection point between
+	 boid's orientation vector 
+	 and the wall
 	 */
 	def isWallVisible(wallPointA : Vector2d, wallPointB : Vector2d, orientation : Vector2d) : Vector2d {
 		
@@ -285,6 +314,7 @@ agent Boid {
 			var xcomm : double = x1
 			var ycomm : double = a2 * xcomm + b2
 
+			//Intersection point
 			var pos : Vector2d = new Vector2d(xcomm, ycomm)
 			
 			if ((pos - virtualBoidPoint).length < (pos - position).length)
@@ -295,7 +325,12 @@ agent Boid {
 		}
 		else {
 			
-			a1 = (y2 - y1) / (x2 - x1)
+			if (x1 == x2) {
+				a1 = 0
+			}
+			else {
+				a1 = (y2 - y1) / (x2 - x1)
+			}
 
 			b1 = y1 - (a1 * x1)
 
@@ -305,10 +340,13 @@ agent Boid {
 				var xcomm : double = (b2 - b1) / (a1 - a2)
 				var ycomm : double = a1 * xcomm + b1
 
+				// Intersection point
 				var pos : Vector2d = new Vector2d(xcomm, ycomm)
 
+				//verifying if the point is on the segment
 				if (xcomm >= x1 && xcomm <= x2) {
-					if ((pos - virtualBoidPoint).length < (pos - position).length)
+					if ((y1 < y2 && ycomm >= y1 && ycomm <= y2) || (y1 > y2 && ycomm <= y1 && ycomm >= y2))
+						if ((pos - virtualBoidPoint).length < (pos - position).length)
 						return pos
 				}
 
@@ -316,10 +354,9 @@ agent Boid {
 
 			}
 		}
-		
-		
 	}
 
+	/****get angle between 2 vectors */
 	private static def getAngle(v : Vector2d) : double {
 		var zero = 1E-9
 		if ((v.x * v.x) < zero) {
@@ -350,6 +387,10 @@ agent Boid {
 		return force
 	}
 
+
+	/**************** Detect a soon collision between the boid and a wall
+	and set the direction vector to avoid the wall*******/
+	
 	def wallEscape(walls : Collection<PerceivedWallBody>, orientation : Vector2d) : Vector2d {
 
 		var traited : boolean = false;
@@ -360,7 +401,10 @@ agent Boid {
 		
 		var nearestPoint : Vector2d = null
 
+		
 		for (wall : walls) {
+
+			//Check the position of each point of the wall. If the point is close to the boid, then we look for a soon colision
 			
 			for(var i : int = 0 ; i < wall.points.size; i++){
 				
@@ -369,17 +413,18 @@ agent Boid {
 
 					if (i + 1 < wall.points.size) {
 
+						//Looking for the closest collision
 						var wallInter : Vector2d = isWallVisible(wall.points.get(i), wall.points.get(i + 1),
 							orientation)
 							
 						if (wallInter === null){
 							
-							//alpha = 0
+							
 							
 						}
 						
 						else if ((position - wallInter).length < Settings.wallPointsMaxDistance) {
-							
+							//If a collision is detected
 							if(nearestPoint === null || (position - wallInter).length < (position - nearestPoint).length){
 								
 								nearestPoint = wallInter;
@@ -388,44 +433,50 @@ agent Boid {
 
 								var newTemp : Vector2d
 
+								//Checking if the current wall is already known by the boid
 								if (currentWall !== null && wall.hashCode == currentWall.hashCode) {
-
 									
 									newTemp = (wall.points.get(i + currentWallDirection) - wallInter)
+									forgetCurrentWall = 100
 
 								} else {
 
+									forgetCurrentWall = max(forgetCurrentWall - 0.0000000001, 0)
 									if (tmp.angle(wall.points.get(i) - wallInter) <
 										tmp.angle(wall.points.get(i + 1) - wallInter)) {
-
+											
+										// Set the force vector to escape the wall
 										newTemp = (wall.points.get(i + 1) - wallInter)
 										currentWallDirection = 1
 										currentWall = wall
 
 									} else {
-
+										
+										//Set the force vector to escape the wall
 										newTemp = (wall.points.get(i) - wallInter)
 										currentWallDirection = 0
 										currentWall = wall
 									}
 								}
 								
-								
 								var dist = abs(sin(tmp.angle(wall.points.get(i + 1) - wallInter))) * tmp.length
 								
-								dist = dist-Settings.wallPointsMaxDistance/10
-								if (dist < 0.00001)
-									dist = 0.00001
-
-								System.out.println(dist)
+								dist = dist-Settings.wallPointsMaxDistance/5
 								
-								newTemp.scale(1 / (dist ** 2))
-								vect = newTemp
-
+								if(dist<0)
+									dist = 0
 								
 
 								alpha = 1 - (dist / Settings.wallPointsMaxDistance)
 
+								if (dist < 1)
+									dist = 1
+								
+								//Resize the force vector in function of the distance between the boid and the intersection
+								newTemp.scale(1 / (dist ** 2))
+								vect = newTemp
+
+								//Saying that a collision has been found and traited
 								traited = true
 
 							}
@@ -447,7 +498,9 @@ agent Boid {
 		return force
 		
 	}
-	
+
+	/** Return the vector director of 2 points.
+	 */
 	def vectDirect(a : Vector2d, b: Vector2d):double{
 		
 		return (b.y-a.y)/(b.x-a.x)

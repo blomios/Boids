@@ -123,6 +123,7 @@ public class Environment extends Agent {
         if (_containsKey) {
           this.influences.add(occurrence.getSource().getUUID());
           this.applyForce(occurrence.influence, this.boids.get(occurrence.getSource().getUUID()));
+          this.resolveWallConflict(this.boids.get(occurrence.getSource().getUUID()));
         }
         int _size = this.influences.size();
         int _size_1 = this.boids.size();
@@ -172,6 +173,68 @@ public class Environment extends Agent {
   private void $behaviorUnit$Die$3(final Die occurrence) {
     Lifecycle _$CAPACITY_USE$IO_SARL_CORE_LIFECYCLE$CALLER = this.$castSkill(Lifecycle.class, (this.$CAPACITY_USE$IO_SARL_CORE_LIFECYCLE == null || this.$CAPACITY_USE$IO_SARL_CORE_LIFECYCLE.get() == null) ? (this.$CAPACITY_USE$IO_SARL_CORE_LIFECYCLE = this.$getSkill(Lifecycle.class)) : this.$CAPACITY_USE$IO_SARL_CORE_LIFECYCLE);
     _$CAPACITY_USE$IO_SARL_CORE_LIFECYCLE$CALLER.killMe();
+  }
+  
+  @Pure
+  protected Vector2d getWallDistance(final Vector2d pointA, final Vector2d pointB, final Vector2d boidPosition) {
+    Vector2d AP = boidPosition.operator_minus(pointA);
+    Vector2d AB = pointB.operator_minus(pointA);
+    double _dot = AP.dot(AB);
+    double _norme = this.norme(AB);
+    double _norme_1 = this.norme(AB);
+    double t = (_dot / (_norme * _norme_1));
+    t = Math.min(Math.max(0, t), 1);
+    Vector2d _multiply = AB.operator_multiply(t);
+    Vector2d Pprime = pointA.operator_plus(_multiply);
+    return Pprime;
+  }
+  
+  @Pure
+  protected double norme(final Vector2d vector) {
+    double _x = vector.getX();
+    double _x_1 = vector.getX();
+    double _y = vector.getY();
+    double _y_1 = vector.getY();
+    return Math.sqrt(((_x * _x_1) + (_y * _y_1)));
+  }
+  
+  protected void resolveWallConflict(final PerceivedBoidBody b) {
+    Collection<PerceivedWallBody> _values = this.walls.values();
+    for (final PerceivedWallBody wall : _values) {
+      for (int i = 0; (i < (((List<Vector2d>)Conversions.doWrapArray(wall.getPoints())).size() - 1)); i++) {
+        {
+          Vector2d _get = wall.getPoints()[i];
+          Vector2d _position = b.getPosition();
+          double distBoidPoint = _get.operator_minus(_position).getLength();
+          if ((distBoidPoint < Settings.wallPointsMaxDistance)) {
+            Vector2d pointA = null;
+            Vector2d pointB = null;
+            double _length = wall.getPoints()[i].getLength();
+            double _length_1 = wall.getPoints()[(i + 1)].getLength();
+            if ((_length < _length_1)) {
+              pointA = wall.getPoints()[i];
+              pointB = wall.getPoints()[(i + 1)];
+            } else {
+              pointA = wall.getPoints()[(i + 1)];
+              pointB = wall.getPoints()[i];
+            }
+            Vector2d Pprime = this.getWallDistance(pointA, pointB, b.getPosition());
+            Vector2d _position_1 = b.getPosition();
+            Vector2d vect = _position_1.operator_minus(Pprime);
+            double _length_2 = vect.getLength();
+            if ((_length_2 < Settings.wallSize)) {
+              double _length_3 = vect.getLength();
+              double step = (Settings.wallSize - _length_3);
+              vect.normalize();
+              vect.scale(step);
+              Vector2d _position_2 = b.getPosition();
+              Vector2d _plus = _position_2.operator_plus(vect);
+              b.setPosition(_plus);
+            }
+          }
+        }
+      }
+    }
   }
   
   protected void applyForce(final Vector2d force, final PerceivedBoidBody b) {

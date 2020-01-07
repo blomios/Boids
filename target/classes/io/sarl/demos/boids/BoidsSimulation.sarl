@@ -159,7 +159,8 @@ class BoidsSimulation implements EventListener {
 		
 		for(var i : int = 0; i < w.points.size-1; i++){
 			
-			if((w.points.get(i) - w.points.get(i + 1)).length >= Settings.wallPointsMaxDistance){
+			if ((w.points.get(i) - w.points.get(i + 1)).length >=
+				Settings.wallPointsMaxDistance / 2) {
 				
 				var nbPointsToAdd = (w.points.get(i) - w.points.get(i + 1)).length /
 					(Settings.wallPointsMaxDistance/2)

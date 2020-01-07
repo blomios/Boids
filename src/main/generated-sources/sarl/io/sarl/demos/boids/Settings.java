@@ -56,4 +56,6 @@ public interface Settings {
    * Specify a max distance between each point of a wall
    */
   public static final int wallPointsMaxDistance = 100;
+  
+  public static final int wallSize = 5;
 }

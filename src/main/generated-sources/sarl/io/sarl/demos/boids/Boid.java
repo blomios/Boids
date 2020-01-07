@@ -53,6 +53,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Inject;
 import org.arakhne.afc.math.geometry.d2.d.Vector2d;
+import org.eclipse.xtext.xbase.lib.CollectionLiterals;
 import org.eclipse.xtext.xbase.lib.Conversions;
 import org.eclipse.xtext.xbase.lib.Extension;
 import org.eclipse.xtext.xbase.lib.Inline;
@@ -83,6 +84,8 @@ public class Boid extends Agent {
   private int currentWallDirection;
   
   private PerceivedBoidBody myBody;
+  
+  private double forgetCurrentWall = 0.0;
   
   private void $behaviorUnit$Initialize$0(final Initialize occurrence) {
     int _size = ((List<Object>)Conversions.doWrapArray(occurrence.parameters)).size();
@@ -180,27 +183,28 @@ public class Boid extends Agent {
    * The core boids behavior : aggregating all forces into a influence
    */
   protected Vector2d think(final Collection<PerceivedBoidBody> perception, final Collection<PerceivedWallBody> walls) {
-    if (((perception != null) || (perception.size() != 0))) {
+    Collection<PerceivedBoidBody> mPerception = this.removeBoidsHiddenByWall(perception, walls);
+    if (((mPerception != null) || (mPerception.size() != 0))) {
       Vector2d force = null;
       Vector2d influence = new Vector2d();
       influence.set(0, 0);
       if (this.group.separationOn) {
-        force = this.separation(perception);
+        force = this.separation(mPerception);
         force.scale(this.group.separationForce);
         influence.operator_add(force);
       }
       if (this.group.cohesionOn) {
-        force = this.cohesion(perception);
+        force = this.cohesion(mPerception);
         force.scale(this.group.cohesionForce);
         influence.operator_add(force);
       }
       if (this.group.alignmentOn) {
-        force = this.alignment(perception);
+        force = this.alignment(mPerception);
         force.scale(this.group.alignmentForce);
         influence.operator_add(force);
       }
       if (this.group.repulsionOn) {
-        force = this.repulsion(perception);
+        force = this.repulsion(mPerception);
         force.scale(this.group.repulsionForce);
         influence.operator_add(force);
       }
@@ -216,22 +220,48 @@ public class Boid extends Agent {
       Vector2d _multiply_1 = force.operator_multiply(this.alpha);
       return _multiply.operator_plus(_multiply_1);
     }
-    System.out.println("*****************PERCEPT NULL***************************");
-    Vector2d force_1 = null;
-    Vector2d influence_1 = new Vector2d();
-    double direction = Boid.getAngle(this.speed);
-    double cos = Math.cos(direction);
-    double sin = Math.sin(direction);
-    double _x = this.position.getX();
-    double x = (_x + ((int) (5 * cos)));
-    double _y = this.position.getY();
-    double y = (_y + ((int) (5 * sin)));
-    Vector2d _vector2d = new Vector2d(x, y);
-    Vector2d _minus = _vector2d.operator_minus(this.position);
-    influence_1 = _minus;
-    force_1 = this.wallEscape(walls, influence_1);
-    force_1.scale(100000000.0f);
-    return force_1;
+    return null;
+  }
+  
+  /**
+   * Remove Boids hidden by wall or too far from perception list
+   */
+  protected Collection<PerceivedBoidBody> removeBoidsHiddenByWall(final Collection<PerceivedBoidBody> otherBoids, final Collection<PerceivedWallBody> walls) {
+    Collection<PerceivedBoidBody> mBoids = CollectionLiterals.<PerceivedBoidBody>newArrayList();
+    boolean traited = false;
+    for (final PerceivedBoidBody boid : otherBoids) {
+      {
+        UUID _owner = boid.getOwner();
+        UUID _iD = this.getID();
+        if ((_owner != _iD)) {
+          Vector2d _position = boid.getPosition();
+          Vector2d vector = _position.operator_minus(this.position);
+          double _length = vector.getLength();
+          if ((_length <= 100)) {
+            for (final PerceivedWallBody wall : walls) {
+              {
+                for (int i = 0; (i < (((List<Vector2d>)Conversions.doWrapArray(wall.getPoints())).size() - 1)); i++) {
+                  if (((wall.getPoints()[i].operator_minus(this.position).getLength() < 100) || (wall.getPoints()[(i + 1)].operator_minus(this.position).getLength() < 100))) {
+                    Vector2d _isWallVisible = this.isWallVisible(wall.getPoints()[i], wall.getPoints()[(i + 1)], vector);
+                    if ((_isWallVisible != null)) {
+                      traited = true;
+                      break;
+                    }
+                  }
+                }
+                if (traited) {
+                  break;
+                }
+              }
+            }
+          }
+        }
+        if ((!traited)) {
+          mBoids.add(boid);
+        }
+      }
+    }
+    return mBoids;
   }
   
   /**
@@ -268,7 +298,9 @@ public class Boid extends Agent {
   }
   
   /**
-   * Determine whether a wall between 2 points is in range or not
+   * Determine whether a wall between 2 points is in range or not and return intersection point between
+   * boid's orientation vector
+   * and the wall
    */
   @Pure
   protected Vector2d isWallVisible(final Vector2d wallPointA, final Vector2d wallPointB, final Vector2d orientation) {
@@ -324,7 +356,11 @@ public class Boid extends Agent {
       }
       return null;
     } else {
-      a1 = ((y2 - y1) / (x2 - x1));
+      if ((x1 == x2)) {
+        a1 = 0;
+      } else {
+        a1 = ((y2 - y1) / (x2 - x1));
+      }
       b1 = (y1 - (a1 * x1));
       if ((a1 == a2)) {
         return null;
@@ -333,10 +369,12 @@ public class Boid extends Agent {
         double ycomm_1 = ((a1 * xcomm_1) + b1);
         Vector2d pos_1 = new Vector2d(xcomm_1, ycomm_1);
         if (((xcomm_1 >= x1) && (xcomm_1 <= x2))) {
-          double _length_2 = pos_1.operator_minus(virtualBoidPoint).getLength();
-          double _length_3 = pos_1.operator_minus(this.position).getLength();
-          if ((_length_2 < _length_3)) {
-            return pos_1;
+          if (((((y1 < y2) && (ycomm_1 >= y1)) && (ycomm_1 <= y2)) || (((y1 > y2) && (ycomm_1 <= y1)) && (ycomm_1 >= y2)))) {
+            double _length_2 = pos_1.operator_minus(virtualBoidPoint).getLength();
+            double _length_3 = pos_1.operator_minus(this.position).getLength();
+            if ((_length_2 < _length_3)) {
+              return pos_1;
+            }
           }
         }
         return null;
@@ -344,6 +382,9 @@ public class Boid extends Agent {
     }
   }
   
+  /**
+   * get angle between 2 vectors
+   */
   @Pure
   private static double getAngle(final Vector2d v) {
     double zero = 1E-9;
@@ -394,6 +435,10 @@ public class Boid extends Agent {
     return force;
   }
   
+  /**
+   * Detect a soon collision between the boid and a wall
+   * and set the direction vector to avoid the wall
+   */
   protected Vector2d wallEscape(final Collection<PerceivedWallBody> walls, final Vector2d orientation) {
     boolean traited = false;
     Vector2d force = new Vector2d(0, 0);
@@ -418,7 +463,9 @@ public class Boid extends Agent {
                     Vector2d _get = wall.getPoints()[(i + this.currentWallDirection)];
                     Vector2d _minus = _get.operator_minus(wallInter);
                     newTemp = _minus;
+                    this.forgetCurrentWall = 100;
                   } else {
+                    this.forgetCurrentWall = Math.max((this.forgetCurrentWall - 0.0000000001), 0);
                     Vector2d _get_1 = wall.getPoints()[i];
                     Vector2d _minus_1 = _get_1.operator_minus(wallInter);
                     double _angle = tmp.angle(_minus_1);
@@ -444,15 +491,17 @@ public class Boid extends Agent {
                   double _abs = Math.abs(Math.sin(tmp.angle(_minus_5)));
                   double _length_1 = tmp.getLength();
                   double dist = (_abs * _length_1);
-                  dist = (dist - (Settings.wallPointsMaxDistance / 10));
-                  if ((dist < 0.00001)) {
-                    dist = 0.00001;
+                  dist = (dist - (Settings.wallPointsMaxDistance / 5));
+                  if ((dist < 0)) {
+                    dist = 0;
                   }
-                  System.out.println(dist);
+                  this.alpha = (1 - (dist / Settings.wallPointsMaxDistance));
+                  if ((dist < 1)) {
+                    dist = 1;
+                  }
                   double _power = Math.pow(dist, 2);
                   newTemp.scale((1 / _power));
                   vect = newTemp;
-                  this.alpha = (1 - (dist / Settings.wallPointsMaxDistance));
                   traited = true;
                 }
               }
@@ -641,6 +690,8 @@ public class Boid extends Agent {
       return false;
     if (other.currentWallDirection != this.currentWallDirection)
       return false;
+    if (Double.doubleToLongBits(other.forgetCurrentWall) != Double.doubleToLongBits(this.forgetCurrentWall))
+      return false;
     return super.equals(obj);
   }
   
@@ -653,6 +704,7 @@ public class Boid extends Agent {
     result = prime * result + java.util.Objects.hashCode(this.environment);
     result = prime * result + (int) (Double.doubleToLongBits(this.alpha) ^ (Double.doubleToLongBits(this.alpha) >>> 32));
     result = prime * result + this.currentWallDirection;
+    result = prime * result + (int) (Double.doubleToLongBits(this.forgetCurrentWall) ^ (Double.doubleToLongBits(this.forgetCurrentWall) >>> 32));
     return result;
   }
   

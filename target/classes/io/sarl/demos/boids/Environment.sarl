@@ -88,6 +88,7 @@ agent Environment {
 					this.influences.add(occurrence.source.UUID)
 
 					applyForce(occurrence.influence, boids.get(occurrence.source.UUID))
+					resolveWallConflict(boids.get(occurrence.source.UUID))
 				}
 
 				if (this.influences.size == this.boids.size) {
@@ -107,6 +108,77 @@ agent Environment {
 
 	on Die {
 		killMe
+	}
+	
+	def getWallDistance(pointA : Vector2d, pointB : Vector2d, boidPosition : Vector2d){
+		
+		var AP : Vector2d = boidPosition - pointA
+		var AB = pointB - pointA
+		
+		
+		var t = AP.dot(AB) / (AB.norme * AB.norme)
+
+		t = min(max(0, t), 1)
+
+		var Pprime= pointA + AB*t
+		
+		return Pprime
+		
+	}
+	
+	def norme(vector : Vector2d){
+		
+		return Math.sqrt(vector.x * vector.x + vector.y * vector.y)
+		
+	}
+	
+	def resolveWallConflict(b : PerceivedBoidBody) {
+		
+		for(wall : walls.values){
+			
+			for(var i = 0; i < wall.points.size()-1; i++ ){
+				
+				var distBoidPoint = (wall.points.get(i) - b.position).length
+				
+				if (distBoidPoint < Settings.wallPointsMaxDistance) {
+					
+					var pointA : Vector2d
+					var pointB : Vector2d
+					
+					if(wall.points.get(i).length < wall.points.get(i+1).length){
+						pointA = wall.points.get(i)
+						pointB = wall.points.get(i+1)
+						
+					}
+					else {
+						pointA = wall.points.get(i+1)
+						pointB = wall.points.get(i)
+						
+					}
+
+					var Pprime = getWallDistance(pointA, pointB, b.position)
+					
+					var vect = b.position - Pprime
+					
+					if (vect.length < Settings.wallSize) {
+						
+						var step = Settings.wallSize - vect.length
+						
+						vect.normalize()
+						
+						vect.scale(step)
+						
+						b.position = b.position + vect
+						
+					}
+				}
+				
+			}
+			
+		}
+		
+		
+		
 	}
 
 	def applyForce(force : Vector2d, b : PerceivedBoidBody) {
